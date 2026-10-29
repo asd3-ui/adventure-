@@ -12,6 +12,9 @@ package.domain = org.raycast.dungeon
 # (str) Source code where the main.py lives
 source.dir = .
 
+# Use the project-local pygame recipe compatible with CPython 3.11.
+p4a.local_recipes = ./p4a-recipes
+
 # (list) Source files to include (let empty to include all the source directory)
 source.include_exts = py,png,jpg,kv,atlas,json
 
