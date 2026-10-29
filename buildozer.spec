@@ -32,13 +32,14 @@ android.permissions = WAKE_LOCK,VIBRATE
 android.api = 33
 
 # (int) Minimum API your APK / AAB will support.
-android.minapi = 21
+# NumPy's Android recipe requires API level 24 or higher.
+android.minapi = 24
 
 # (str) Android NDK version to use
 android.ndk = 25b
 
 # (bool) If True, then skip trying to update the Android sdk
-# This can be useful to avoid excess downloads or save time
+# This can be useful to avoid excess downloads, so save time
 android.skip_update = False
 
 # (bool) If True, then automatically accept SDK license
