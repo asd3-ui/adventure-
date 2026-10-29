@@ -12,7 +12,7 @@ package.domain = org.raycast.dungeon
 # (str) Source code where the main.py lives
 source.dir = .
 
-# Use the project-local pygame recipe compatible with CPython 3.11.
+# Use the project-local Pygame 2.5.2 recipe (CPython 3.11 compatible).
 p4a.local_recipes = ./p4a-recipes
 
 # (list) Source files to include (let empty to include all the source directory)
@@ -41,8 +41,8 @@ android.minapi = 24
 # (str) Android NDK version to use
 android.ndk = 25b
 
-# Pin python-for-android to a stable release that builds Python 3.11.5.
-# Newer upstream defaults selected Python 3.14, which breaks pygame's SDL2 C extension.
+# Pin python-for-android to the stable release used by the local Pygame 2.5.2 recipe.
+# This avoids the older Pygame 2.1.0 generated C code, which is incompatible with Python 3.11.
 p4a.branch = v2024.01.21
 
 # (bool) If True, then skip trying to update the Android sdk
