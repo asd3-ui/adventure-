@@ -40,7 +40,7 @@ android.ndk = 25b
 
 # Pin python-for-android to a stable release that builds Python 3.11.5.
 # Newer upstream defaults selected Python 3.14, which breaks pygame's SDL2 C extension.
-android.p4a.branch = v2024.01.21
+p4a.branch = v2024.01.21
 
 # (bool) If True, then skip trying to update the Android sdk
 # This can be useful to avoid excess downloads, so save time
