@@ -11,7 +11,7 @@ jobs:
   build:
     name: Buildozer Android APK
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout Repository
@@ -33,70 +33,31 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            git \
-            zip \
-            unzip \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo5 \
-            cmake \
-            libffi-dev \
-            libssl-dev \
-            build-essential \
-            ccache \
-            libsdl2-dev \
-            libsdl2-image-dev \
-            libsdl2-mixer-dev \
-            libsdl2-ttf-dev \
-            libportmidi-dev \
-            libswscale-dev \
-            libavformat-dev \
-            libavcodec-dev
+            git zip unzip autoconf automake libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake \
+            libffi-dev libssl-dev build-essential ccache \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev
 
       - name: Install Python Packaging Dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install --upgrade buildozer cython==0.29.36 virtualenv
+          python -m pip install buildozer cython==0.29.36 virtualenv pygame==2.6.1
 
-      - name: Verify Environment and Config
+      - name: Validate Python Sources and Dungeon Generation
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
         run: |
           python --version
           buildozer --version
-          test -f buildozer.spec || (echo "buildozer.spec missing!" && exit 1)
-          grep -Eq '^p4a\.branch[[:space:]]*=[[:space:]]*v2024\.01\.21
-      - name: Build Android Debug APK
-        run: |
-          # Run buildozer in debug mode
-          buildozer android debug
-
-      - name: Locate and Stage APK
-        id: stage_apk
-        run: |
-          mkdir -p output_apk
-          find bin/ -name "*.apk" -exec cp {} output_apk/ \;
-          echo "Found APK files:"
-          ls -la output_apk/
-
-      - name: Upload Debug APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DungeonRaycast3D-Android-Debug-APK
-          path: output_apk/*.apk
-          retention-days: 14
-          if-no-files-found: error
- buildozer.spec || (echo "python-for-android branch is not pinned correctly" && exit 1)
-          python -m pip install pygame==2.6.1
+          grep -Eq '^p4a\.branch[[:space:]]*=[[:space:]]*v2024\.01\.21$' buildozer.spec
           python -m compileall -q main.py entities.py maze_generator.py
-          SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python - <<'PY'
+          python - <<'PY'
           from collections import deque
-          import pygame
-          from maze_generator import generate_dungeon, GRID_WIDTH, GRID_HEIGHT
           import main
+          from maze_generator import generate_dungeon, GRID_WIDTH, GRID_HEIGHT
+
           for seed in range(100):
               maze = generate_dungeon(seed)
               assert len(maze.grid) == GRID_HEIGHT
@@ -106,28 +67,26 @@ jobs:
               queue = deque([start])
               while queue:
                   x, y = queue.popleft()
-                  for dx, dy in ((1,0),(-1,0),(0,1),(0,-1)):
-                      p = (x+dx, y+dy)
-                      if 0 <= p[0] < GRID_WIDTH and 0 <= p[1] < GRID_HEIGHT and maze.grid[p[1]][p[0]] == 0 and p not in seen:
-                          seen.add(p)
-                          queue.append(p)
+                  for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                      point = (x + dx, y + dy)
+                      if (0 <= point[0] < GRID_WIDTH and 0 <= point[1] < GRID_HEIGHT
+                              and maze.grid[point[1]][point[0]] == 0 and point not in seen):
+                          seen.add(point)
+                          queue.append(point)
               targets = [maze.enemy_spawn, maze.exit_pos, *maze.key_positions]
               assert all((int(x), int(y)) in seen for x, y in targets), f"Unreachable entity at seed {seed}"
-          print("Python imports and 100 generated dungeon connectivity checks passed.")
+          print("Python imports and 100 dungeon connectivity checks passed.")
           PY
 
       - name: Build Android Debug APK
-        run: |
-          # Run buildozer in debug mode
-          buildozer android debug
+        run: buildozer android debug
 
       - name: Locate and Stage APK
-        id: stage_apk
         run: |
           mkdir -p output_apk
-          find bin/ -name "*.apk" -exec cp {} output_apk/ \;
-          echo "Found APK files:"
-          ls -la output_apk/
+          find bin/ -type f -name "*.apk" -exec cp {} output_apk/ \;
+          test -n "$(find output_apk -type f -name '*.apk' -print -quit)"
+          ls -lh output_apk/
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
