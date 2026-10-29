@@ -1,0 +1,6 @@
+{
+  "name": "Dungeon Raycast 3D - Mobile Python Engine",
+  "description": "Production-ready 3D First-Person Raycasting Dungeon Chase game in Python & Pygame with Buildozer Android APK build workflow.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
