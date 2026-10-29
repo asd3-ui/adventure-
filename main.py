@@ -109,13 +109,18 @@ class SoundSynthesizer:
         if not self.enabled:
             return None
         try:
-            import numpy as np
+            # Generate mono signed-16-bit PCM without NumPy. This keeps the
+            # Android package small and avoids unsupported NumPy NDK builds.
+            import struct
             sample_rate = 22050
             n_samples = int(sample_rate * duration)
-            t = np.linspace(0, duration, n_samples, False)
-            waveform = np.sin(2 * np.pi * freq * t) * (np.exp(-3.0 * t))
-            waveform = (waveform * 32767 * volume).astype(np.int16)
-            return pygame.sndarray.make_sound(waveform)
+            samples = []
+            for i in range(n_samples):
+                t = i / sample_rate
+                value = math.sin(2.0 * math.pi * freq * t) * math.exp(-3.0 * t)
+                samples.append(max(-32768, min(32767, int(value * 32767 * volume))))
+            pcm = struct.pack("<" + ("h" * n_samples), *samples)
+            return pygame.mixer.Sound(buffer=pcm)
         except Exception:
             return None
 
