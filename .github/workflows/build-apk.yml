@@ -68,6 +68,53 @@ jobs:
           python --version
           buildozer --version
           test -f buildozer.spec || (echo "buildozer.spec missing!" && exit 1)
+          grep -Eq '^p4a\.branch[[:space:]]*=[[:space:]]*v2024\.01\.21
+      - name: Build Android Debug APK
+        run: |
+          # Run buildozer in debug mode
+          buildozer android debug
+
+      - name: Locate and Stage APK
+        id: stage_apk
+        run: |
+          mkdir -p output_apk
+          find bin/ -name "*.apk" -exec cp {} output_apk/ \;
+          echo "Found APK files:"
+          ls -la output_apk/
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DungeonRaycast3D-Android-Debug-APK
+          path: output_apk/*.apk
+          retention-days: 14
+          if-no-files-found: error
+ buildozer.spec || (echo "python-for-android branch is not pinned correctly" && exit 1)
+          python -m pip install pygame==2.6.1
+          python -m compileall -q main.py entities.py maze_generator.py
+          SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python - <<'PY'
+          from collections import deque
+          import pygame
+          from maze_generator import generate_dungeon, GRID_WIDTH, GRID_HEIGHT
+          import main
+          for seed in range(100):
+              maze = generate_dungeon(seed)
+              assert len(maze.grid) == GRID_HEIGHT
+              assert all(len(row) == GRID_WIDTH for row in maze.grid)
+              start = (int(maze.player_spawn[0]), int(maze.player_spawn[1]))
+              seen = {start}
+              queue = deque([start])
+              while queue:
+                  x, y = queue.popleft()
+                  for dx, dy in ((1,0),(-1,0),(0,1),(0,-1)):
+                      p = (x+dx, y+dy)
+                      if 0 <= p[0] < GRID_WIDTH and 0 <= p[1] < GRID_HEIGHT and maze.grid[p[1]][p[0]] == 0 and p not in seen:
+                          seen.add(p)
+                          queue.append(p)
+              targets = [maze.enemy_spawn, maze.exit_pos, *maze.key_positions]
+              assert all((int(x), int(y)) in seen for x, y in targets), f"Unreachable entity at seed {seed}"
+          print("Python imports and 100 generated dungeon connectivity checks passed.")
+          PY
 
       - name: Build Android Debug APK
         run: |
