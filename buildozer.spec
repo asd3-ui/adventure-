@@ -12,11 +12,16 @@ package.domain = org.raycast.dungeon
 # (str) Source code where the main.py lives
 source.dir = .
 
-# Use the project-local Pygame 2.5.2 recipe (CPython 3.11 compatible).
+# Use the project-local Pygame 2.5.2 recipe (CPython 3.11 compatible; it also
+# generates pygame's Cython sources with the host Cython the workflow installs).
 p4a.local_recipes = ./p4a-recipes
 
 # (list) Source files to include (let empty to include all the source directory)
 source.include_exts = py,png,jpg,kv,atlas,json
+
+# Keep the web preview (Vite/React) and tooling files out of the APK.
+source.exclude_dirs = src,public,p4a-recipes,.github,node_modules,.git,bin,.buildozer,venv
+source.exclude_patterns = package.json,tsconfig.json,metadata.json
 
 # (str) Application versioning (method 1)
 version = 1.0.0
