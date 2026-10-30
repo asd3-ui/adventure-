@@ -29,10 +29,17 @@ import {
   Globe,
   Sliders,
   X,
-  Gauge
+  Gauge,
+  Sparkles,
+  Layers,
+  Flame,
+  Music,
+  Trophy,
 } from "lucide-react";
 import { PROJECT_FILES, ProjectFile } from "./filesData";
 import { soundEngine } from "./audio";
+import { particleEngine } from "./particles";
+import { getLevelConfig, LevelConfig, LEVELS } from "./levels";
 
 // --- Dungeon Constants ---
 const GRID_SIZE = 20;
@@ -162,15 +169,25 @@ export const TRANSLATIONS = {
 
     // Victory
     escapedTitle: "Dungeon Escaped!",
-    escapedDesc: "You gathered all runes and escaped through the emerald portal.",
+    escapedDesc: "You gathered all runes and escaped through the portal.",
     escapeTime: "Escape Time",
     runesRetrieved: "Runes Retrieved",
-    nextRunBtn: "Play Next Labyrinth",
+    nextRunBtn: "Advance to Next Level",
+    replayLevelBtn: "Replay Level",
+    levelCompleteTitle: "Level Escaped!",
+    level: "Level",
+    nextLevel: "Next Level",
+    levelSelect: "Level Select",
+    beastSpecie: "Beast Specie",
+    particlesAtmosphere: "Particles & Motes",
+    bgmMusic: "Dungeon BGM",
 
     // Settings Modal
     settingsTitle: "Game Settings & Options",
     settingsDifficultyHeading: "Beast Difficulty Level",
     settingsDifficultyDesc: "Select the challenge level. Affects beast movement speed and A* pathfinding recalculation frequency.",
+    settingsLevelHeading: "Starting Dungeon Level",
+    settingsLevelDesc: "Select which environmental biome to begin your escape in.",
     settingsLanguageHeading: "Interface Language",
     settingsLanguageDesc: "Choose interface language.",
     applyClose: "Apply & Continue",
@@ -209,7 +226,7 @@ export const TRANSLATIONS = {
     // Menu
     menuTitle: "مطاردة المتاهة",
     menuSubtitle: "متاهة صخرية 20×20 • محرك بايثون وأندرويد",
-    menuDesc: "تحكم في اللاعب داخل متاهة صخرية 20×20 مجسمة. اجمع تمائم الآثار الذهبية الـ3 واعبر البوابة الزمردية قبل أن يقبض عليك وحش الظلال الذكي!",
+    menuDesc: "تحكم في اللاعب داخل متاهة صخرية 20×20 مجسمة. اجمع كل تمائم الآثار واعبر البوابة قبل أن يقبض عليك وحش الظلال الذكي!",
     startBtn: "بدء الهروب من المتاهة (اضغط هنا)",
     highScore: "أعلى نتيجة",
     difficultyLabel: "الصعوبة",
@@ -236,16 +253,26 @@ export const TRANSLATIONS = {
     retryBtn: "إعادة المحاولة (اضغط هنا)",
 
     // Victory
-    escapedTitle: "تم الهروب بنجاح!",
-    escapedDesc: "جمعت كل التمائم وعبرت البوابة الزمردية بسلام!",
+    escapedTitle: "تم اجتياز المستوى بنجاح!",
+    escapedDesc: "جمعت كل التمائم وعبرت البوابة بسلام!",
     escapeTime: "وقت الهروب",
     runesRetrieved: "التمائم المسترجعة",
-    nextRunBtn: "لعب متاهة جديدة",
+    nextRunBtn: "الانتقال للمستوى التالي",
+    replayLevelBtn: "إعادة نفس المستوى",
+    levelCompleteTitle: "اكتمل الهروب من المستوى!",
+    level: "المستوى",
+    nextLevel: "المستوى التالي",
+    levelSelect: "اختيار المستوى",
+    beastSpecie: "فصيلة الوحش",
+    particlesAtmosphere: "نظام الجزيئات الحية",
+    bgmMusic: "موسيقى تفاعلية BGM",
 
     // Settings Modal
     settingsTitle: "إعدادات اللعبة وخيارات الصعوبة",
     settingsDifficultyHeading: "مستوى صعوبة الوحش",
     settingsDifficultyDesc: "اختر مستوى التحدي. يؤثر على سرعة حركة الوحش وتكرار حساب مسار الذكاء الاصطناعي A*.",
+    settingsLevelHeading: "المستوى البدائي للعب",
+    settingsLevelDesc: "اختر البيئة والمتاهة التي تريد بدء المغامرة منها.",
     settingsLanguageHeading: "لغة اللعبة",
     settingsLanguageDesc: "اختر لغة واجهة اللعبة.",
     applyClose: "تطبيق ومتابعة اللعب",
@@ -299,12 +326,21 @@ export default function App() {
     }
   });
 
+  // Level Progression state
+  const [currentLevel, setCurrentLevel] = useState<number>(() => {
+    try {
+      return parseInt(localStorage.getItem("dungeon_current_level") || "1", 10) || 1;
+    } catch {
+      return 1;
+    }
+  });
+
   // Game HUD state
   const [gameState, setGameState] = useState<GameState>("MENU");
   const [health, setHealth] = useState<number>(100);
   const [stamina, setStamina] = useState<number>(100);
   const [keysCollected, setKeysCollected] = useState<number>(0);
-  const [totalKeys] = useState<number>(3);
+  const [totalKeys, setTotalKeys] = useState<number>(() => getLevelConfig(1).keyCount);
   const [gameScore, setGameScore] = useState<number>(0);
   const [surviveTime, setSurviveTime] = useState<number>(0);
   const [enemyDist, setEnemyDist] = useState<number>(15);
@@ -324,6 +360,7 @@ export default function App() {
   const simRef = useRef({
     state: "MENU" as GameState,
     difficulty: difficulty as Difficulty,
+    level: currentLevel,
     cameraMode: "FOLLOW" as CameraMode,
     camera: { x: 1.5 * TILE_SIZE, y: 1.5 * TILE_SIZE },
     grid: [] as number[][],
@@ -354,6 +391,7 @@ export default function App() {
     keysTotal: 3,
     heartbeatTimer: 0,
     footstepTimer: 0,
+    ambientTimer: 0,
     keysPressed: {
       w: false,
       s: false,
@@ -402,8 +440,9 @@ export default function App() {
     }
   }, [difficulty]);
 
-  // Procedural 20x20 Maze Generation with smart corridor sightline orientation
-  const generateMaze = useCallback(() => {
+  // Procedural 20x20 Maze Generation with distinct level architectures & chambers
+  const generateMaze = useCallback((levelNum: number = 1) => {
+    const levelConfig = getLevelConfig(levelNum);
     const grid: number[][] = Array.from({ length: GRID_SIZE }, () =>
       Array.from({ length: GRID_SIZE }, () => 1)
     );
@@ -442,23 +481,57 @@ export default function App() {
       }
     }
 
-    // Add corridor loops (18% chance) to allow dynamic escape loops
+    // Add corridor loops according to level complexity
+    const loopChance = levelConfig.maze.corridorLoopChance;
     for (let y = 2; y < GRID_SIZE - 2; y++) {
       for (let x = 2; x < GRID_SIZE - 2; x++) {
         if (grid[y][x] === 1) {
-          if (grid[y][x - 1] === 0 && grid[y][x + 1] === 0 && Math.random() < 0.18) {
+          if (grid[y][x - 1] === 0 && grid[y][x + 1] === 0 && Math.random() < loopChance) {
             grid[y][x] = 0;
-          } else if (grid[y - 1][x] === 0 && grid[y + 1][x] === 0 && Math.random() < 0.18) {
+          } else if (grid[y - 1][x] === 0 && grid[y + 1][x] === 0 && Math.random() < loopChance) {
             grid[y][x] = 0;
           }
         }
       }
     }
 
-    // Open center chamber
-    for (let cy = 8; cy < 12; cy++) {
-      for (let cx = 8; cx < 12; cx++) {
-        grid[cy][cx] = 0;
+    // Open thematic chambers based on level layout
+    const layout = levelConfig.maze.chamberLayout;
+    if (layout === "center") {
+      for (let cy = 8; cy < 12; cy++) {
+        for (let cx = 8; cx < 12; cx++) grid[cy][cx] = 0;
+      }
+    } else if (layout === "split") {
+      // Twin arenas
+      for (let cy = 4; cy < 8; cy++) {
+        for (let cx = 4; cx < 8; cx++) grid[cy][cx] = 0;
+      }
+      for (let cy = 12; cy < 16; cy++) {
+        for (let cx = 12; cx < 16; cx++) grid[cy][cx] = 0;
+      }
+    } else if (layout === "quads") {
+      // 4 corner halls
+      const rooms = [
+        [3, 3],
+        [14, 3],
+        [3, 14],
+        [14, 14],
+      ];
+      for (const [rx, ry] of rooms) {
+        for (let dy = 0; dy < 3; dy++) {
+          for (let dx = 0; dx < 3; dx++) grid[ry + dy][rx + dx] = 0;
+        }
+      }
+    } else if (layout === "cross") {
+      // Cruciform cross intersection halls
+      for (let i = 4; i < 16; i++) {
+        grid[10][i] = 0;
+        grid[i][10] = 0;
+      }
+    } else {
+      // Open pillars web
+      for (let cy = 6; cy < 14; cy += 2) {
+        for (let cx = 6; cx < 14; cx += 2) grid[cy][cx] = 0;
       }
     }
 
@@ -491,20 +564,32 @@ export default function App() {
     const validPlayerTiles = openTiles.filter(
       (t) => t.x < 7 && t.y < 7 && t.openNeighbors >= 2
     );
-    const chosenPlayer = validPlayerTiles.length > 0
-      ? validPlayerTiles[Math.floor(Math.random() * validPlayerTiles.length)]
-      : (openTiles.find((t) => t.x < 7 && t.y < 7) || openTiles[0] || { x: 1.5, y: 1.5, openNeighbors: 2 });
+    const chosenPlayer =
+      validPlayerTiles.length > 0
+        ? validPlayerTiles[Math.floor(Math.random() * validPlayerTiles.length)]
+        : openTiles.find((t) => t.x < 7 && t.y < 7) ||
+          openTiles[0] || { x: 1.5, y: 1.5, openNeighbors: 2 };
     const playerSpawn: [number, number] = [chosenPlayer.x, chosenPlayer.y];
 
     // Enemy spawn in far bottom-right quadrant
-    const enemySpawnTile = openTiles.slice().reverse().find((t) => t.x > 12 && t.y > 12) || { x: 18.5, y: 18.5, openNeighbors: 2 };
+    const enemySpawnTile =
+      openTiles
+        .slice()
+        .reverse()
+        .find((t) => t.x > 12 && t.y > 12) || {
+        x: 18.5,
+        y: 18.5,
+        openNeighbors: 2,
+      };
     const enemySpawn: [number, number] = [enemySpawnTile.x, enemySpawnTile.y];
 
     // Exit spawn in top-right or bottom-left
-    const exitTile = openTiles.find((t) => t.x > 13 && t.y < 7) || openTiles[Math.floor(openTiles.length / 2)];
+    const exitTile =
+      openTiles.find((t) => t.x > 13 && t.y < 7) ||
+      openTiles[Math.floor(openTiles.length / 2)];
     const exitPos: [number, number] = [exitTile.x, exitTile.y];
 
-    // Pick 3 random key items across different quadrants
+    // Pick random key items matching levelConfig.keyCount
     const candidates = openTiles.filter(
       (t) =>
         (t.x !== playerSpawn[0] || t.y !== playerSpawn[1]) &&
@@ -512,12 +597,14 @@ export default function App() {
         (t.x !== exitPos[0] || t.y !== exitPos[1])
     );
     candidates.sort(() => Math.random() - 0.5);
-    const keys: KeyItem[] = candidates.slice(0, 3).map((t, i) => ({ id: i, x: t.x, y: t.y }));
+    const keys: KeyItem[] = candidates
+      .slice(0, levelConfig.keyCount)
+      .map((t, i) => ({ id: i, x: t.x, y: t.y }));
 
     return { grid, playerSpawn, enemySpawn, exitPos, keys };
   }, []);
 
-  // Optimized A* Algorithm on 20x20 grid (Recalculated every 30 frames)
+  // Optimized A* Algorithm on 20x20 grid (Recalculated periodically)
   const aStarSearch = useCallback(
     (
       start: [number, number],
@@ -575,55 +662,73 @@ export default function App() {
     []
   );
 
-  // Initialize a fresh game session
-  const startNewGame = useCallback(() => {
-    soundEngine.startAtmosphere();
-    const mazeData = generateMaze();
-    const sim = simRef.current;
+  // Initialize a fresh game session for target level
+  const startNewGame = useCallback(
+    (targetLevel: number = currentLevel) => {
+      const levelConfig = getLevelConfig(targetLevel);
+      setCurrentLevel(targetLevel);
+      setTotalKeys(levelConfig.keyCount);
+      try {
+        localStorage.setItem("dungeon_current_level", targetLevel.toString());
+      } catch {
+        // ignore
+      }
 
-    sim.grid = mazeData.grid;
-    sim.player = {
-      x: mazeData.playerSpawn[0],
-      y: mazeData.playerSpawn[1],
-      angle: 0.0,
-      radius: 0.32,
-      health: 100,
-      stamina: 100,
-      isSprinting: false,
-      score: 0,
-      time: 0,
-    };
-    sim.camera = {
-      x: mazeData.playerSpawn[0] * TILE_SIZE,
-      y: mazeData.playerSpawn[1] * TILE_SIZE,
-    };
-    sim.difficulty = difficulty;
-    sim.enemy = {
-      x: mazeData.enemySpawn[0],
-      y: mazeData.enemySpawn[1],
-      angle: 0.0,
-      speed: DIFFICULTY_SETTINGS[difficulty].speed,
-      dist: 999,
-      path: [],
-      recalcTimer: 0,
-      pulse: 0,
-    };
-    sim.exitPos = { x: mazeData.exitPos[0], y: mazeData.exitPos[1] };
-    sim.keys = mazeData.keys;
-    sim.keysCollected = 0;
-    sim.virtualStick.dx = 0;
-    sim.virtualStick.dy = 0;
-    sim.state = "PLAYING";
+      // Initialize background music and clear particle pool
+      particleEngine.clear();
+      soundEngine.startBGM(levelConfig.bgmMood);
 
-    setStickPos({ x: 0, y: 0, active: false });
-    setGameState("PLAYING");
-    setHealth(100);
-    setStamina(100);
-    setKeysCollected(0);
-    setGameScore(0);
-    setSurviveTime(0);
-    setIsSprintingUI(false);
-  }, [generateMaze, difficulty]);
+      const mazeData = generateMaze(targetLevel);
+      const sim = simRef.current;
+
+      sim.level = targetLevel;
+      sim.grid = mazeData.grid;
+      sim.player = {
+        x: mazeData.playerSpawn[0],
+        y: mazeData.playerSpawn[1],
+        angle: 0.0,
+        radius: 0.32,
+        health: 100,
+        stamina: 100,
+        isSprinting: false,
+        score: targetLevel > 1 && sim.state === "VICTORY" ? sim.player.score : 0,
+        time: 0,
+      };
+      sim.camera = {
+        x: mazeData.playerSpawn[0] * TILE_SIZE,
+        y: mazeData.playerSpawn[1] * TILE_SIZE,
+      };
+      sim.difficulty = difficulty;
+      sim.enemy = {
+        x: mazeData.enemySpawn[0],
+        y: mazeData.enemySpawn[1],
+        angle: 0.0,
+        speed: DIFFICULTY_SETTINGS[difficulty].speed,
+        dist: 999,
+        path: [],
+        recalcTimer: 0,
+        pulse: 0,
+      };
+      sim.exitPos = { x: mazeData.exitPos[0], y: mazeData.exitPos[1] };
+      sim.keys = mazeData.keys;
+      sim.keysCollected = 0;
+      sim.keysTotal = levelConfig.keyCount;
+      sim.virtualStick.dx = 0;
+      sim.virtualStick.dy = 0;
+      sim.ambientTimer = 0;
+      sim.state = "PLAYING";
+
+      setStickPos({ x: 0, y: 0, active: false });
+      setGameState("PLAYING");
+      setHealth(100);
+      setStamina(100);
+      setKeysCollected(0);
+      setGameScore(sim.player.score);
+      setSurviveTime(0);
+      setIsSprintingUI(false);
+    },
+    [generateMaze, difficulty, currentLevel]
+  );
 
   // Touch Virtual Joystick Pointer Handlers
   const handleJoystickPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -818,11 +923,53 @@ export default function App() {
           return false;
         };
 
+        const currentLvl = getLevelConfig(sim.level || 1);
+
+        // Wall collision with sparks emission on contact
         if (!checkWall(sim.player.x + dx, sim.player.y)) {
           sim.player.x += dx;
+        } else if (Math.abs(dx) > 0.001) {
+          particleEngine.emitWallSparks(
+            sim.player.x * TILE_SIZE,
+            sim.player.y * TILE_SIZE,
+            dx > 0 ? -1 : 1,
+            0
+          );
         }
+
         if (!checkWall(sim.player.x, sim.player.y + dy)) {
           sim.player.y += dy;
+        } else if (Math.abs(dy) > 0.001) {
+          particleEngine.emitWallSparks(
+            sim.player.x * TILE_SIZE,
+            sim.player.y * TILE_SIZE,
+            0,
+            dy > 0 ? -1 : 1
+          );
+        }
+
+        // Emit player glimmer particle trail when moving
+        if (isMoving) {
+          particleEngine.emitPlayerGlimmer(
+            sim.player.x * TILE_SIZE,
+            sim.player.y * TILE_SIZE,
+            sim.player.isSprinting
+          );
+        }
+
+        // Atmospheric dust motes floating in the air
+        sim.ambientTimer = (sim.ambientTimer || 0) + dt;
+        if (sim.ambientTimer >= 0.06) {
+          sim.ambientTimer = 0;
+          const pWorldX = sim.player.x * TILE_SIZE;
+          const pWorldY = sim.player.y * TILE_SIZE;
+          const spreadX = canvas.width * 0.75;
+          const spreadY = canvas.height * 0.75;
+          const ax = pWorldX + (Math.random() - 0.5) * spreadX;
+          const ay = pWorldY + (Math.random() - 0.5) * spreadY;
+          const ambColors = currentLvl.ambientColors;
+          const chosenColor = ambColors[Math.floor(Math.random() * ambColors.length)];
+          particleEngine.emitDustMote(ax, ay, chosenColor);
         }
 
         // Smooth camera follow lerp
@@ -841,13 +988,18 @@ export default function App() {
           }
         }
 
-        // Check key pickups
+        // Check key pickups with golden burst particles
         sim.keys = sim.keys.filter((k) => {
           const dist = Math.hypot(sim.player.x - k.x, sim.player.y - k.y);
           if (dist < 0.7) {
             sim.keysCollected += 1;
             sim.player.score += 500;
             soundEngine.playKeyCollect();
+            particleEngine.emitKeyBurst(
+              k.x * TILE_SIZE,
+              k.y * TILE_SIZE,
+              currentLvl.keyColor
+            );
             return false;
           }
           return true;
@@ -857,6 +1009,11 @@ export default function App() {
         if (sim.keysCollected >= sim.keysTotal) {
           const exitDist = Math.hypot(sim.player.x - sim.exitPos.x, sim.player.y - sim.exitPos.y);
           if (exitDist < 0.85) {
+            particleEngine.emitPortalAura(
+              sim.exitPos.x * TILE_SIZE,
+              sim.exitPos.y * TILE_SIZE,
+              currentLvl.portalColor
+            );
             sim.player.score += 2000 + Math.floor(Math.max(0, 300 - sim.player.time) * 10);
             soundEngine.playVictory();
             sim.state = "VICTORY";
@@ -936,6 +1093,13 @@ export default function App() {
           if (gx >= 0 && gx < GRID_SIZE && gy >= 0 && gy < GRID_SIZE && sim.grid[gy][gx] === 0) {
             en.x = nx;
             en.y = ny;
+            // Emit beast smoke and sparks trail
+            particleEngine.emitBeastSmoke(
+              en.x * TILE_SIZE,
+              en.y * TILE_SIZE,
+              en.angle,
+              currentLvl.beast.smokeColors
+            );
           }
         }
 
@@ -948,6 +1112,10 @@ export default function App() {
             soundEngine.playHeartbeat();
           }
         }
+
+        // Update particle physics simulation & dynamic BGM tension
+        particleEngine.update(dt);
+        soundEngine.updateBGMTension(en.dist);
 
         // Sync React HUD state
         setHealth(Math.round(sim.player.health));
@@ -993,16 +1161,66 @@ export default function App() {
               const ry = y * curTileSize;
 
               if (sim.grid[y][x] === 0) {
-                // Open Floor Corridor: Flagstone pavers
-                ctx.fillStyle = COLOR_FLOOR;
+                // Open Floor Corridor: Level-specific pavers
+                ctx.fillStyle = currentLvl.floorColor;
                 ctx.fillRect(rx, ry, curTileSize, curTileSize);
 
                 // Subtle inner stone tile seams
-                ctx.strokeStyle = COLOR_FLOOR_LINE;
+                ctx.strokeStyle = currentLvl.floorLineColor;
                 ctx.lineWidth = 1;
                 ctx.strokeRect(rx, ry, curTileSize, curTileSize);
-                if (curTileSize >= 36) {
-                  // Staggered paving joints
+
+                // Environmental Floor Details per Theme
+                if (currentLvl.floorType === "magma") {
+                  if ((x * 3 + y * 7) % 5 === 0) {
+                    ctx.strokeStyle = "rgba(249, 115, 22, 0.45)";
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(rx + curTileSize * 0.2, ry + curTileSize * 0.3);
+                    ctx.lineTo(rx + curTileSize * 0.55, ry + curTileSize * 0.65);
+                    ctx.lineTo(rx + curTileSize * 0.85, ry + curTileSize * 0.4);
+                    ctx.stroke();
+                  }
+                } else if (currentLvl.floorType === "moss") {
+                  if ((x * 2 + y) % 3 === 0) {
+                    ctx.fillStyle = "rgba(16, 185, 129, 0.3)";
+                    ctx.beginPath();
+                    ctx.arc(rx + curTileSize * 0.35, ry + curTileSize * 0.35, 3, 0, Math.PI * 2);
+                    ctx.arc(rx + curTileSize * 0.65, ry + curTileSize * 0.65, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                  }
+                } else if (currentLvl.floorType === "frost") {
+                  if ((x + y) % 3 === 0) {
+                    ctx.strokeStyle = "rgba(165, 243, 252, 0.35)";
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(rx + curTileSize * 0.3, ry + curTileSize * 0.5);
+                    ctx.lineTo(rx + curTileSize * 0.7, ry + curTileSize * 0.5);
+                    ctx.moveTo(rx + curTileSize * 0.5, ry + curTileSize * 0.3);
+                    ctx.lineTo(rx + curTileSize * 0.5, ry + curTileSize * 0.7);
+                    ctx.stroke();
+                  }
+                } else if (currentLvl.floorType === "void") {
+                  if ((x + y * 2) % 4 === 0) {
+                    ctx.strokeStyle = "rgba(168, 85, 247, 0.25)";
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(rx + curTileSize * 0.5, ry + curTileSize * 0.5, curTileSize * 0.22, 0, Math.PI * 2);
+                    ctx.stroke();
+                  }
+                } else if (currentLvl.floorType === "crystal") {
+                  if ((x * 3 + y) % 4 === 0) {
+                    ctx.fillStyle = "rgba(236, 72, 153, 0.3)";
+                    ctx.beginPath();
+                    ctx.moveTo(rx + curTileSize * 0.5, ry + curTileSize * 0.25);
+                    ctx.lineTo(rx + curTileSize * 0.65, ry + curTileSize * 0.5);
+                    ctx.lineTo(rx + curTileSize * 0.5, ry + curTileSize * 0.75);
+                    ctx.lineTo(rx + curTileSize * 0.35, ry + curTileSize * 0.5);
+                    ctx.closePath();
+                    ctx.fill();
+                  }
+                } else if (curTileSize >= 36) {
+                  // Staggered paving joints for ancient masonry
                   ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
                   ctx.beginPath();
                   ctx.moveTo(rx + curTileSize * 0.5, ry);
@@ -1029,23 +1247,23 @@ export default function App() {
                   ctx.fillRect(rx + curTileSize, ry, 10, curTileSize);
                 }
 
-                // B. Wall Top Cap (Linear bevel gradient)
+                // B. Wall Top Cap (Linear bevel gradient per level)
                 const wallGrad = ctx.createLinearGradient(rx, ry, rx + curTileSize, ry + curTileSize);
-                wallGrad.addColorStop(0, "#3a455c");
-                wallGrad.addColorStop(1, "#242c3c");
+                wallGrad.addColorStop(0, currentLvl.wallTop[0]);
+                wallGrad.addColorStop(1, currentLvl.wallTop[1]);
                 ctx.fillStyle = wallGrad;
                 ctx.fillRect(rx, ry, curTileSize, curTileSize);
 
                 // C. 3D Wall Front Edge Extrusion (Height Depth)
                 const faceH = curTileSize * 0.28;
                 const faceGrad = ctx.createLinearGradient(rx, ry + curTileSize - faceH, rx, ry + curTileSize);
-                faceGrad.addColorStop(0, "#1f2636");
-                faceGrad.addColorStop(1, "#141924");
+                faceGrad.addColorStop(0, currentLvl.wallFace[0]);
+                faceGrad.addColorStop(1, currentLvl.wallFace[1]);
                 ctx.fillStyle = faceGrad;
                 ctx.fillRect(rx, ry + curTileSize - faceH, curTileSize, faceH);
 
                 // D. Specular Ridge Highlight Line along top of front edge
-                ctx.strokeStyle = "#6d7f9f";
+                ctx.strokeStyle = currentLvl.wallSpecular;
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 ctx.moveTo(rx, ry + curTileSize - faceH);
@@ -1054,7 +1272,7 @@ export default function App() {
 
                 // E. Masonry stone brick seams on front face
                 if (curTileSize >= 36) {
-                  ctx.strokeStyle = "#10141d";
+                  ctx.strokeStyle = "#0d1017";
                   ctx.lineWidth = 1;
                   ctx.beginPath();
                   ctx.moveTo(rx + curTileSize * 0.33, ry + curTileSize - faceH);
@@ -1065,8 +1283,8 @@ export default function App() {
                 }
 
                 // F. Top-Left Beveled Rim Specular Highlight
-                ctx.strokeStyle = "#5a6a8c";
-                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = currentLvl.wallSpecular;
+                ctx.lineWidth = 1.2;
                 ctx.beginPath();
                 ctx.moveTo(rx, ry + curTileSize);
                 ctx.lineTo(rx, ry);
@@ -1074,7 +1292,7 @@ export default function App() {
                 ctx.stroke();
 
                 // G. Outer Wall Border
-                ctx.strokeStyle = COLOR_WALL_BORDER;
+                ctx.strokeStyle = currentLvl.wallBorder;
                 ctx.lineWidth = 1;
                 ctx.strokeRect(rx, ry, curTileSize, curTileSize);
               }
@@ -1107,10 +1325,10 @@ export default function App() {
           // Outer energy vortex ring
           ctx.beginPath();
           ctx.arc(ex, ey, curTileSize * 0.44, 0, Math.PI * 2);
-          ctx.fillStyle = portalReady ? "rgba(16, 185, 129, 0.35)" : "rgba(71, 85, 105, 0.25)";
+          ctx.fillStyle = portalReady ? currentLvl.portalGlow : "rgba(71, 85, 105, 0.25)";
           ctx.fill();
           ctx.lineWidth = 2.5;
-          ctx.strokeStyle = portalReady ? COLOR_EXIT_PORTAL : "#64748b";
+          ctx.strokeStyle = portalReady ? currentLvl.portalColor : "#64748b";
           ctx.stroke();
 
           // Swirling rotating energy rings
@@ -1119,7 +1337,7 @@ export default function App() {
           ctx.rotate(sim.player.time * (portalReady ? 2.5 : 0.8));
           ctx.beginPath();
           ctx.arc(0, 0, curTileSize * 0.28, 0, Math.PI * 2);
-          ctx.strokeStyle = portalReady ? "#6ee7b7" : "#94a3b8";
+          ctx.strokeStyle = portalReady ? currentLvl.portalColor : "#94a3b8";
           ctx.lineWidth = 2;
           ctx.setLineDash([6, 6]);
           ctx.stroke();
@@ -1128,7 +1346,7 @@ export default function App() {
           // Swirling core
           ctx.beginPath();
           ctx.arc(0, 0, curTileSize * 0.16, 0, Math.PI * 2);
-          ctx.fillStyle = portalReady ? "#34d399" : "#475569";
+          ctx.fillStyle = portalReady ? currentLvl.portalColor : "#475569";
           ctx.fill();
           ctx.restore();
           ctx.restore();
@@ -1152,9 +1370,9 @@ export default function App() {
             ctx.fillStyle = "rgba(245, 158, 11, 0.25)";
             ctx.fill();
 
-            // 3D Golden Key Emblem
+            // 3D Themed Key Emblem
             ctx.translate(kx, ky + bobY);
-            ctx.fillStyle = COLOR_KEY;
+            ctx.fillStyle = currentLvl.keyColor;
             ctx.strokeStyle = "#ffffff";
             ctx.lineWidth = 1.5;
             ctx.beginPath();
@@ -1177,7 +1395,7 @@ export default function App() {
             ctx.restore();
           }
 
-          // --- 4. Render A* Chasing Enemy (Realistic 3D Shadow Beast) ---
+          // --- 4. Render A* Chasing Enemy (Realistic 3D Beast) ---
           const enx = sim.enemy.x * curTileSize;
           const eny = sim.enemy.y * curTileSize;
           const beastRadius = curTileSize * 0.38;
@@ -1189,18 +1407,18 @@ export default function App() {
           ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
           ctx.fill();
 
-          // Menacing crimson terror aura ripples
+          // Menacing terror aura ripples
           ctx.beginPath();
           ctx.arc(enx, eny, beastRadius * 1.8 + Math.sin(sim.enemy.pulse) * 5, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(239, 68, 68, 0.22)";
+          ctx.fillStyle = `${currentLvl.beast.borderColor}33`;
           ctx.fill();
 
           ctx.translate(enx, eny);
           ctx.rotate(sim.enemy.angle);
 
-          // 3D Jagged Demonic Carapace
-          ctx.fillStyle = "#991b1b";
-          ctx.strokeStyle = "#f87171";
+          // 3D Jagged Demonic Carapace (Themed)
+          ctx.fillStyle = currentLvl.beast.bodyColor;
+          ctx.strokeStyle = currentLvl.beast.borderColor;
           ctx.lineWidth = 2.5;
           ctx.beginPath();
           ctx.moveTo(beastRadius * 1.3, 0); // Spiked snout
@@ -1215,15 +1433,15 @@ export default function App() {
           ctx.fill();
           ctx.stroke();
 
-          // Inner volcanic magma core
-          ctx.fillStyle = "#ef4444";
+          // Inner molten core
+          ctx.fillStyle = currentLvl.beast.coreColor;
           ctx.beginPath();
           ctx.ellipse(-beastRadius * 0.1, 0, beastRadius * 0.45, beastRadius * 0.28, 0, 0, Math.PI * 2);
           ctx.fill();
 
           // Glowing predatory slit eyes
-          ctx.fillStyle = "#ffffff";
-          ctx.shadowColor = "#fca5a5";
+          ctx.fillStyle = currentLvl.beast.eyeColor;
+          ctx.shadowColor = currentLvl.beast.coreColor;
           ctx.shadowBlur = 6;
           ctx.beginPath();
           ctx.arc(beastRadius * 0.4, -beastRadius * 0.3, 3, 0, Math.PI * 2);
@@ -1303,7 +1521,23 @@ export default function App() {
 
           ctx.restore();
 
-          // --- 6. Ambient Vignette / Fog of War in Follow Mode ---
+          // --- 6. Render Canvas Particle Engine (Zero-Font Primitives) ---
+          const viewBounds = sim.cameraMode === "FOLLOW"
+            ? {
+                minX: sim.camera.x - W,
+                maxX: sim.camera.x + W,
+                minY: sim.camera.y - H,
+                maxY: sim.camera.y + H,
+              }
+            : {
+                minX: -200,
+                maxX: GRID_SIZE * curTileSize + 200,
+                minY: -200,
+                maxY: GRID_SIZE * curTileSize + 200,
+              };
+          particleEngine.render(ctx, viewBounds);
+
+          // --- 7. Ambient Vignette / Fog of War in Follow Mode ---
           if (sim.cameraMode === "FOLLOW") {
             ctx.restore(); // restore to screen coords
             ctx.save();
@@ -1343,7 +1577,7 @@ export default function App() {
               ctx.fillRect(0, 0, W, H);
             }
 
-            // --- 7. STATIC 20x20 MINI-MAP OVERLAY IN THE CORNER ---
+            // --- 8. STATIC 20x20 MINI-MAP OVERLAY IN THE CORNER ---
             const mapSize = 108; // 108px compact square
             const cellW = mapSize / GRID_SIZE; // 5.4px per cell
             const mapX = W - mapSize - 16;
@@ -1363,20 +1597,20 @@ export default function App() {
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // Radar title and coordinates bar
+            // Radar title and coordinates bar with Level info
             ctx.fillStyle = "#38bdf8";
             ctx.font = "bold 9px monospace";
-            ctx.fillText("RADAR 20x20", mapX, mapY + mapSize + 11);
+            ctx.fillText(`LVL ${sim.level || 1} • RADAR`, mapX, mapY + mapSize + 11);
             ctx.fillStyle = "#94a3b8";
             ctx.font = "8px monospace";
-            ctx.fillText(`[${Math.floor(sim.player.x)},${Math.floor(sim.player.y)}]`, mapX + 66, mapY + mapSize + 11);
+            ctx.fillText(`[${Math.floor(sim.player.x)},${Math.floor(sim.player.y)}]`, mapX + 70, mapY + mapSize + 11);
 
             // 20x20 Dungeon layout cells
             for (let gy = 0; gy < GRID_SIZE; gy++) {
               for (let gx = 0; gx < GRID_SIZE; gx++) {
                 const cx = mapX + gx * cellW;
                 const cy = mapY + gy * cellW;
-                ctx.fillStyle = sim.grid[gy][gx] === 1 ? "#232d3f" : "#0d111a";
+                ctx.fillStyle = sim.grid[gy][gx] === 1 ? currentLvl.wallFace[0] : currentLvl.floorColor;
                 ctx.fillRect(cx, cy, cellW, cellW);
               }
             }
@@ -1389,7 +1623,7 @@ export default function App() {
             // Exit portal dot
             const exX = mapX + sim.exitPos.x * cellW;
             const exY = mapY + sim.exitPos.y * cellW;
-            ctx.fillStyle = "#10b981";
+            ctx.fillStyle = currentLvl.portalColor;
             ctx.beginPath();
             ctx.arc(exX, exY, 2.8, 0, Math.PI * 2);
             ctx.fill();
@@ -1398,7 +1632,7 @@ export default function App() {
             for (const key of sim.keys) {
               const kX = mapX + key.x * cellW;
               const kY = mapY + key.y * cellW;
-              ctx.fillStyle = "#f59e0b";
+              ctx.fillStyle = currentLvl.keyColor;
               ctx.beginPath();
               ctx.arc(kX, kY, 2.2, 0, Math.PI * 2);
               ctx.fill();
@@ -1682,7 +1916,7 @@ buildozer android debug
                     </div>
                   </div>
 
-                  {/* Center Threat Distance Alert & Active Difficulty Badge */}
+                  {/* Center Threat Distance Alert, Level Badge & Active Difficulty Badge */}
                   <div className="flex flex-col items-center gap-1 pointer-events-auto">
                     <div
                       className={`px-3 py-1 rounded-full border flex items-center gap-1.5 transition-all ${
@@ -1699,16 +1933,25 @@ buildozer android debug
                       </span>
                     </div>
 
-                    {/* Active Difficulty Indicator Badge with Click-to-Settings */}
-                    <button
-                      onClick={() => setIsSettingsOpen(true)}
-                      title={t.settings}
-                      className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[10px] font-mono font-bold transition shadow cursor-pointer ${DIFFICULTY_SETTINGS[difficulty].badgeBg} ${DIFFICULTY_SETTINGS[difficulty].badgeText} ${DIFFICULTY_SETTINGS[difficulty].badgeBorder}`}
-                    >
-                      <Gauge className="w-3 h-3" />
-                      <span>{language === "ar" ? DIFFICULTY_SETTINGS[difficulty].labelAr : DIFFICULTY_SETTINGS[difficulty].labelEn}</span>
-                      <span className="opacity-70 text-[9px]">({DIFFICULTY_SETTINGS[difficulty].speed}x)</span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {/* Active Level Badge */}
+                      <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 shadow">
+                        <Layers className="w-3 h-3 text-cyan-400" />
+                        <span>
+                          {t.level} {currentLevel}: {language === "ar" ? getLevelConfig(currentLevel).nameAr : getLevelConfig(currentLevel).nameEn}
+                        </span>
+                      </div>
+
+                      {/* Active Difficulty Indicator Badge with Click-to-Settings */}
+                      <button
+                        onClick={() => setIsSettingsOpen(true)}
+                        title={t.settings}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold transition shadow cursor-pointer ${DIFFICULTY_SETTINGS[difficulty].badgeBg} ${DIFFICULTY_SETTINGS[difficulty].badgeText} ${DIFFICULTY_SETTINGS[difficulty].badgeBorder}`}
+                      >
+                        <Gauge className="w-3 h-3" />
+                        <span>{language === "ar" ? DIFFICULTY_SETTINGS[difficulty].labelAr : DIFFICULTY_SETTINGS[difficulty].labelEn}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Top-Right: Camera Mode Toggle Button */}
@@ -1841,14 +2084,49 @@ buildozer android debug
                     </button>
                   </div>
 
+                  {/* Multi-Level Dungeon Progression Selector */}
+                  <div className="bg-[#101422] border border-cyan-500/25 p-3 rounded-xl space-y-2 text-left rtl:text-right">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-white font-bold flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{t.levelSelect}</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-cyan-300">
+                        {t.level} {currentLevel} • {language === "ar" ? getLevelConfig(currentLevel).nameAr : getLevelConfig(currentLevel).nameEn}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                      {LEVELS.map((lvl) => {
+                        const isSelected = currentLevel === lvl.number;
+                        return (
+                          <button
+                            key={lvl.number}
+                            onClick={() => setCurrentLevel(lvl.number)}
+                            className={`p-1.5 rounded-lg border text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                              isSelected
+                                ? "bg-cyan-600/30 border-cyan-400 text-white ring-2 ring-cyan-500/50 shadow"
+                                : "bg-black/40 border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                            }`}
+                          >
+                            <span className="text-[10px] font-mono font-bold">L{lvl.number}</span>
+                            <span className="text-[8px] truncate max-w-full font-sans">
+                              {language === "ar" ? lvl.nameAr : lvl.nameEn}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Primary CTA */}
                   <div className="space-y-2">
                     <button
-                      onClick={startNewGame}
+                      onClick={() => startNewGame(currentLevel)}
                       className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-sm tracking-wider uppercase shadow-lg shadow-cyan-950/60 transition cursor-pointer flex items-center justify-center gap-2"
                     >
                       <Play className="w-4 h-4 fill-white" />
-                      <span>{t.startBtn}</span>
+                      <span>{t.startBtn} ({t.level} {currentLevel})</span>
                     </button>
 
                     <div className="text-xs text-slate-400 font-mono">
@@ -1925,20 +2203,21 @@ buildozer android debug
                   <div className="bg-black/40 p-3 rounded-lg border border-red-500/20 text-xs font-mono space-y-1 text-slate-300">
                     <div>{t.finalScore}: <span className="text-white font-bold">{gameScore}</span></div>
                     <div>{t.survived}: <span className="text-white font-bold">{surviveTime}s</span></div>
-                    <div>{t.keysFound}: <span className="text-yellow-400 font-bold">{keysCollected}/3</span></div>
+                    <div>{t.keysFound}: <span className="text-yellow-400 font-bold">{keysCollected}/{totalKeys}</span></div>
                   </div>
 
                   <button
-                    onClick={startNewGame}
-                    className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider transition shadow-lg shadow-red-950/60 cursor-pointer"
+                    onClick={() => startNewGame(currentLevel)}
+                    className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider transition shadow-lg shadow-red-950/60 cursor-pointer flex items-center justify-center gap-1.5"
                   >
-                    {t.retryBtn}
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{t.retryBtn}</span>
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Victory Modal */}
+            {/* Victory Modal with Next Level Progression */}
             {gameState === "VICTORY" && (
               <div
                 dir={language === "ar" ? "rtl" : "ltr"}
@@ -1946,29 +2225,43 @@ buildozer android debug
               >
                 <div className="bg-[#0a1810] border border-emerald-500/40 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
                   <div className="w-12 h-12 rounded-full bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center mx-auto text-emerald-400">
-                    <Shield className="w-6 h-6" />
+                    <Trophy className="w-6 h-6" />
                   </div>
                   <div>
                     <h3 className="text-2xl font-black text-emerald-400 uppercase tracking-tight">
                       {t.escapedTitle}
                     </h3>
                     <p className="text-xs text-slate-300 mt-1">
-                      {t.escapedDesc}
+                      {language === "ar"
+                        ? `لقد نجوت من المستوى ${currentLevel} (${getLevelConfig(currentLevel).nameAr})!`
+                        : `You conquered Level ${currentLevel} (${getLevelConfig(currentLevel).nameEn})!`}
                     </p>
                   </div>
 
                   <div className="bg-black/40 p-3 rounded-lg border border-emerald-500/20 text-xs font-mono space-y-1 text-slate-300">
                     <div>{t.finalScore}: <span className="text-emerald-300 font-bold">{gameScore}</span></div>
                     <div>{t.escapeTime}: <span className="text-white font-bold">{surviveTime}s</span></div>
-                    <div>{t.runesRetrieved}: <span className="text-yellow-400 font-bold">3/3</span></div>
+                    <div>{t.runesRetrieved}: <span className="text-yellow-400 font-bold">{keysCollected}/{totalKeys}</span></div>
                   </div>
 
-                  <button
-                    onClick={startNewGame}
-                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider transition shadow-lg shadow-emerald-950/60 cursor-pointer"
-                  >
-                    {t.nextRunBtn}
-                  </button>
+                  <div className="space-y-2 pt-1">
+                    <button
+                      onClick={() => startNewGame(currentLevel + 1)}
+                      className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-950/80 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>
+                        {t.nextLevel} ({t.level} {currentLevel + 1})
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => startNewGame(currentLevel)}
+                      className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>{t.replayLevelBtn}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2313,6 +2606,54 @@ buildozer android debug
                         <span>{cfg.recalcInterval}f A*</span>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Level Selection Section */}
+            <div className="space-y-2 border-t border-white/10 pt-4">
+              <div>
+                <label className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                  <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                  {t.levelSelect}
+                </label>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {language === "ar"
+                    ? "اختر البيئة والغرفة التي تريد استكشافها ومواجهة وحشها"
+                    : "Select which dungeon floor environment and unique beast to encounter"}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {LEVELS.map((lvl) => {
+                  const isSelected = currentLevel === lvl.number;
+                  return (
+                    <button
+                      key={lvl.number}
+                      onClick={() => {
+                        setCurrentLevel(lvl.number);
+                        if (gameState === "PLAYING") {
+                          startNewGame(lvl.number);
+                        }
+                      }}
+                      className={`p-2 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+                        isSelected
+                          ? "bg-cyan-900/40 border-cyan-400 ring-2 ring-cyan-500/30 text-white shadow-md"
+                          : "bg-black/40 border-white/10 text-slate-400 hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span>{t.level} {lvl.number}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                      </div>
+                      <span className="text-[10px] font-semibold text-slate-200 truncate mt-1">
+                        {language === "ar" ? lvl.nameAr : lvl.nameEn}
+                      </span>
+                      <span className="text-[9px] text-slate-400 truncate mt-0.5 font-mono">
+                        {language === "ar" ? lvl.beast.nameAr : lvl.beast.nameEn}
+                      </span>
+                    </button>
                   );
                 })}
               </div>
